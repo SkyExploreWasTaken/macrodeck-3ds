@@ -26,6 +26,7 @@ APP_AUTHOR		:=	SkyExploreWasTaken
 APP_VERSION_MAJOR	:=	1
 APP_VERSION_MINOR	:=	0
 APP_VERSION_MICRO	:=	0
+APP_BUILD		:=	$(shell git rev-parse --short=7 HEAD 2>/dev/null || echo dev)
 ICON		:=	meta/icon.png
 
 # CIA metadata
@@ -42,7 +43,7 @@ CFLAGS	:=	-g -Wall -O2 -mword-relocations \
 			-ffunction-sections -fdata-sections \
 			$(ARCH)
 
-CFLAGS	+=	$(INCLUDE) -D__3DS__ -DWEBP_USE_THREAD=0 -DAPP_VERSION_STR=\"$(APP_VERSION_MAJOR).$(APP_VERSION_MINOR).$(APP_VERSION_MICRO)\"
+CFLAGS	+=	$(INCLUDE) -D__3DS__ -DWEBP_USE_THREAD=0 -DAPP_VERSION_STR=\"$(APP_VERSION_MAJOR).$(APP_VERSION_MINOR).$(APP_VERSION_MICRO)\" -DAPP_BUILD_STR=\"$(APP_BUILD)\"
 
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 

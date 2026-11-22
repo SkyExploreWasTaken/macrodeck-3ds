@@ -772,9 +772,13 @@ static void draw_top(void)
 	// Footer: controls and the console's own address
 	C2D_DrawRectSolid(0, SCR_H - 22, 0, TOP_W, 22, COL_PANEL);
 	text("START Menu    Back   SELECT Reconnect", 10, SCR_H - 19, 0.42f, COL_MUTED, C2D_AlignLeft);
-	char ip[32];
+	char ip[32], right[64];
 	net_local_ip(ip, sizeof ip);
-	text(ip[0] ? ip : "No Wi-Fi", TOP_W - 10, SCR_H - 19, 0.42f, ip[0] ? COL_MUTED : COL_BAD, C2D_AlignRight);
+#ifndef APP_BUILD_STR
+#define APP_BUILD_STR "dev"
+#endif
+	snprintf(right, sizeof right, "%s  ·  %s", ip[0] ? ip : "No Wi-Fi", APP_BUILD_STR);
+	text(right, TOP_W - 10, SCR_H - 19, 0.42f, ip[0] ? COL_MUTED : COL_BAD, C2D_AlignRight);
 }
 
 /* ---------- input ---------- */

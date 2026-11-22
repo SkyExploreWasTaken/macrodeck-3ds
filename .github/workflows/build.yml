@@ -39,7 +39,9 @@ jobs:
           makerom -version || true
 
       - name: Build .3dsx
-        run: make -j"$(nproc)"
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          make -j"$(nproc)"
 
       - name: Build .cia
         run: make cia
@@ -59,21 +61,33 @@ jobs:
             MacroDeck3DS.3dsx
             MacroDeck3DS.cia
 
-      - name: Move the nightly tag
+      - name: Replace the nightly release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # Delete and recreate it so the release list shows it as new, with this build's commit and date.
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          id=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" "$api/releases/tags/nightly" | jq -r .id) || id=
+          if [ -n "$id" ] && [ "$id" != null ]; then
+            curl -fsS -X DELETE -H "Authorization: Bearer $GH_TOKEN" "$api/releases/$id"
+          fi
           git tag -f nightly
           git push -f origin refs/tags/nightly
+          echo "short=$(echo "$GITHUB_SHA" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
 
       - name: Nightly release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
-          name: Nightly build
+          name: Nightly build ${{ steps.nightly.outputs.short }} (${{ steps.nightly.outputs.date }})
           prerelease: true
-          body: Latest build of main (${{ github.sha }}). Install the .cia with FBI, or put the .3dsx in sdmc:/3ds/.
+          body: |
+            Latest build of main, commit ${{ steps.nightly.outputs.short }}. The app shows this commit at the bottom right of the top screen.
+            Install the .cia with FBI (or scan the QR code in the README), or put the .3dsx in sdmc:/3ds/.
           files: |
             MacroDeck3DS.3dsx
             MacroDeck3DS.cia
