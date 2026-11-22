@@ -149,14 +149,18 @@ static void set_error(const char *fmt, ...)
 	plat_mutex_unlock(&g_model.lock);
 }
 
-void client_sleep_notice(bool waking)
+// Set while the app is in the background: the worker idles instead of polling sockets the system has suspended.
+static volatile bool g_paused;
+
+void client_sleep_notice(bool back)
 {
 	plat_mutex_lock(&g_model.lock);
-	g_quiet_until = waking ? plat_ms() + 12000 : UINT64_MAX;
+	g_quiet_until = back ? plat_ms() + 12000 : UINT64_MAX;
 	g_model.error[0] = 0;
 	model_touch();
 	plat_mutex_unlock(&g_model.lock);
-	if (waking) client_cmd(CMD_RECONNECT, NULL, NULL, 0);
+	g_paused = !back;
+	if (back) client_cmd(CMD_RECONNECT, NULL, NULL, 0);
 }
 
 static void save_config(void)
@@ -1485,6 +1489,11 @@ static void worker(void *arg)
 {
 	(void)arg;
 	while (S.running) {
+		if (g_paused) {
+			// In the background: leave the CPU and the network to the HOME Menu until we are back.
+			plat_sleep_ms(50);
+			continue;
+		}
 		bool busy = false;
 		Command c;
 		while (pop_command(&c)) {

@@ -335,13 +335,14 @@ static void prompt_pairing_code(void)
 
 static int g_screen_off_min = 3;   // 0 = never
 static bool g_pixel_shift = true;
-static bool g_lcd_ok;
 static bool g_backlight_off;
 static bool g_wake_only;           // swallow input until every key and the stylus are released
 static u64 g_last_input;
 static int g_shift_idx;
 static u64 g_shift_at;
 static int g_dx, g_dy;
+// Time of the last frame. A long gap means something froze the whole app (the Rosalina menu does that).
+static u64 g_last_frame;
 
 // A one-pixel walk around the home position, so nothing ever moves more than a pixel off the edges.
 static const signed char g_shift_steps[][2] = {
@@ -350,9 +351,12 @@ static const signed char g_shift_steps[][2] = {
 
 static void backlight(bool on)
 {
-	if (!g_lcd_ok || g_backlight_off == !on) return;
+	if (g_backlight_off == !on) return;
+	// Open gsp::Lcd only for the call: the HOME Menu needs that service too, so we never hold a session open.
+	if (R_FAILED(gspLcdInit())) return;
 	if (on) GSPLCD_PowerOnBacklight(GSPLCD_SCREEN_BOTH);
 	else GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_BOTH);
+	gspLcdExit();
 	g_backlight_off = !on;
 }
 
@@ -456,6 +460,8 @@ static void run_action(int action, int arg)
 		}
 		break;
 	}
+	// Keyboards and other prompts block this thread on purpose; that is not a freeze.
+	g_last_frame = osGetTime();
 }
 
 /* ---------- bottom screen layouts ---------- */
@@ -1042,8 +1048,9 @@ static void on_apt(APT_HookType type, void *param)
 {
 	(void)param;
 	// Sockets die while the console sleeps; keep that from flashing an error and reconnect on wake.
-	if (type == APTHOOK_ONSLEEP) client_sleep_notice(false);
-	else if (type == APTHOOK_ONWAKEUP) client_sleep_notice(true);
+	g_last_frame = osGetTime(); // HOME and sleep are handled here, not by the freeze check
+	if (type == APTHOOK_ONSUSPEND || type == APTHOOK_ONSLEEP) client_sleep_notice(false);
+	else if (type == APTHOOK_ONRESTORE || type == APTHOOK_ONWAKEUP) client_sleep_notice(true);
 	// HOME, sleep and wake always get a lit screen, and the idle timer starts over.
 	if (type == APTHOOK_ONSUSPEND || type == APTHOOK_ONSLEEP || type == APTHOOK_ONRESTORE || type == APTHOOK_ONWAKEUP) {
 		backlight(true);
@@ -1081,7 +1088,6 @@ int main(int argc, char **argv)
 	client_start(&cfg);
 	g_screen_off_min = cfg.screen_off_min;
 	g_pixel_shift = cfg.pixel_shift;
-	g_lcd_ok = R_SUCCEEDED(gspLcdInit());
 	g_last_input = osGetTime();
 	g_shift_at = g_last_input + PIXEL_SHIFT_MS;
 	if (net_ok) client_cmd(CMD_STARTUP, NULL, NULL, 0);
@@ -1094,6 +1100,14 @@ int main(int argc, char **argv)
 		u32 down = hidKeysDown(), held = hidKeysHeld(), up = hidKeysUp();
 		touchPosition touch;
 		hidTouchRead(&touch);
+		// The Rosalina menu (and similar overlays) freeze every thread without telling the app. Over a second and a
+		// half without a frame means that happened: the link is likely gone, so reconnect quietly.
+		u64 frame_now = osGetTime();
+		if (g_last_frame && frame_now - g_last_frame > 1500) {
+			client_sleep_notice(true);
+			g_last_input = frame_now;
+		}
+		g_last_frame = frame_now;
 		screen_protect(&down, &held, &up);
 		// Taps land where the shifted UI is drawn.
 		touch.px = (u16)(touch.px - g_dx < 0 ? 0 : touch.px - g_dx > BOT_W - 1 ? BOT_W - 1 : touch.px - g_dx);
@@ -1147,7 +1161,6 @@ int main(int argc, char **argv)
 	}
 
 	backlight(true); // never leave the console with a dark screen
-	if (g_lcd_ok) gspLcdExit();
 	client_stop();
 	update_exit();
 	aptUnhook(&g_apt_cookie);
