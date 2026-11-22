@@ -201,6 +201,8 @@ typedef enum {
 	ACT_EXIT,
 	ACT_MENU,
 	ACT_UPDATE,
+	ACT_CREDITS,
+	ACT_CREDITS_BACK,
 	ACT_HOST, // + index
 } Action;
 
@@ -216,6 +218,7 @@ typedef struct {
 static Model V;            // the UI thread's snapshot of g_model
 static uint32_t g_seen_version = 0xFFFFFFFF;
 static bool g_menu;
+static bool g_credits;     // the Credits page, opened from the menu
 static bool g_quit;
 
 static UpdateStatus g_upd;
@@ -359,6 +362,12 @@ static void run_action(int action, int arg)
 	case ACT_EXIT:
 		g_quit = true;
 		break;
+	case ACT_CREDITS:
+		g_credits = true;
+		break;
+	case ACT_CREDITS_BACK:
+		g_credits = false;
+		break;
 	case ACT_UPDATE:
 		if (g_upd.state == UPD_AVAILABLE) update_install();
 		else if (g_upd.state == UPD_DONE) g_quit = true;
@@ -403,8 +412,10 @@ static void layout_menu(void)
 	}
 	add_button(x, y, w, h, upd, NULL, ACT_UPDATE, 0, g_upd.state == UPD_AVAILABLE || g_upd.state == UPD_DONE);
 	y += h + gap;
-	add_button(x, y, (w - gap) / 2, h, "Close menu", NULL, ACT_CLOSE_MENU, 0, true);
-	add_button(x + (w + gap) / 2, y, (w - gap) / 2, h, "Exit", NULL, ACT_EXIT, 0, false);
+	float tw = (w - 2 * gap) / 3;
+	add_button(x, y, tw, h, "Close menu", NULL, ACT_CLOSE_MENU, 0, true);
+	add_button(x + tw + gap, y, tw, h, "Credits", NULL, ACT_CREDITS, 0, false);
+	add_button(x + 2 * (tw + gap), y, tw, h, "Exit app", NULL, ACT_EXIT, 0, false);
 }
 
 static void layout_hosts(void)
@@ -453,12 +464,16 @@ static void build_layout(void)
 {
 	// A different screen starts its key highlight at the top.
 	static int last_screen = -1;
-	int screen = g_menu ? 1000 : (int)V.phase;
+	int screen = g_menu ? (g_credits ? 1001 : 1000) : (int)V.phase;
 	if (screen != last_screen) {
 		g_sel = 0;
 		last_screen = screen;
 	}
 	g_nbuttons = 0;
+	if (g_menu && g_credits) {
+		add_button(BOT_W / 2 - 60, SCR_H - 32, 120, 26, "Back", NULL, ACT_CREDITS_BACK, 0, true);
+		return;
+	}
 	if (g_menu) {
 		layout_menu();
 		return;
@@ -639,11 +654,44 @@ static void draw_deck(void)
 	}
 }
 
+static void draw_credits(void)
+{
+	char head[64];
+	snprintf(head, sizeof head, "Version %s  ·  build %s", APP_VERSION_STR, APP_BUILD_STR);
+	text("Macro Deck for 3DS", BOT_W / 2, 6, 0.6f, COL_TEXT, C2D_AlignCenter);
+	text(head, BOT_W / 2, 28, 0.4f, COL_MUTED, C2D_AlignCenter);
+	text("Made by SkyExploreWasTaken", BOT_W / 2, 46, 0.48f, COL_ACCENT, C2D_AlignCenter);
+
+	static const char *const lines[] = {
+		"Free software under the GNU GPL v3. No warranty.",
+		"",
+		"Built with:",
+		"libctru, citro2d, citro3d (Zlib)",
+		"curl (curl license), Mbed TLS (Apache-2.0), zlib",
+		"cJSON (MIT), stb_image (public domain)",
+		"libwebp (BSD-3-Clause), Mozilla CA bundle (MPL-2.0)",
+		"",
+		"Not affiliated with Macro Deck or Nintendo.",
+		"github.com/SkyExploreWasTaken/macrodeck-3ds",
+	};
+	float y = 70;
+	for (size_t i = 0; i < sizeof lines / sizeof lines[0]; i++) {
+		if (lines[i][0]) text_fit(lines[i], BOT_W / 2, y, 0.42f, 0.32f, BOT_W - 16, i == 2 ? COL_TEXT : COL_MUTED,
+			C2D_AlignCenter);
+		y += lines[i][0] ? 13 : 6;
+	}
+}
+
 static void draw_bottom(void)
 {
 	u32 bg = V.has_folder_bg && deck_visible() ? rgba_to_c2d(V.folder_bg | 0xFF) : COL_BG;
 	C2D_DrawRectSolid(0, 0, 0, BOT_W, SCR_H, bg);
 
+	if (g_menu && g_credits) {
+		draw_credits();
+		draw_buttons();
+		return;
+	}
 	if (g_menu) {
 		text("Menu", BOT_W / 2, 4, 0.55f, COL_TEXT, C2D_AlignCenter);
 		draw_buttons();
@@ -969,6 +1017,7 @@ int main(int argc, char **argv)
 
 		if (down & KEY_START) {
 			g_menu = !g_menu;
+			g_credits = false;
 			g_touch_button = false;
 			g_sel = 0;
 			g_touch_widget = -1;
@@ -978,7 +1027,8 @@ int main(int argc, char **argv)
 		} else if (deck_visible()) {
 			handle_deck_input(down, held, up, &touch);
 		} else {
-			if ((down & KEY_B) && g_menu) g_menu = false;
+			if ((down & KEY_B) && g_menu && g_credits) g_credits = false;
+			else if ((down & KEY_B) && g_menu) g_menu = false;
 			else if ((down & KEY_B) && V.phase == PHASE_PICK_HOST) client_cmd(CMD_RECONNECT, NULL, NULL, 0);
 			else handle_buttons_input(down, held, up, &touch);
 		}

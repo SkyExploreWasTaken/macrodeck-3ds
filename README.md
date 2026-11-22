@@ -6,7 +6,8 @@ lives on the touch screen and the connection status on the top screen. It runs o
 - **Bottom screen:** the folder's grid of buttons, sliders and displays. Tap to press, hold to long-press, and drag a slider.
 - **Top screen:** the computer you're connected to, the profile and folder you're in, the time, battery and Wi-Fi, plus
   any notifications from Macro Deck.
-- **Controls:** `L`/`R` switch profiles, `B` goes back a folder, `SELECT` reconnects, `START` opens the menu. The deck is
+- **Controls:** `L`/`R` switch profiles, `B` goes back a folder, `SELECT` reconnects, `START` opens the menu (settings, updates, **Credits** and
+  **Exit app**). The deck is
   touch-only; menus also work with the D-pad or Circle Pad and `A`.
 
 ## Install
