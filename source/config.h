@@ -21,6 +21,10 @@ typedef struct {
 	char device_secret[160];
 	char startup_profile_id[48];
 	char last_profile_id[48];
+
+	// Screen protection (used by the UI only).
+	int screen_off_min; // backlight off after this many idle minutes, 0 = never
+	bool pixel_shift;   // nudge the UI by a pixel every few minutes
 } Config;
 
 void config_defaults(Config *c);

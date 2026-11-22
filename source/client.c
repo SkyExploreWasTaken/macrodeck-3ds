@@ -1433,6 +1433,13 @@ static void process_command(const Command *c)
 		save_config();
 		publish_host();
 		break;
+	case CMD_SET_SCREEN:
+		plat_mutex_lock(&S.cfg_lock);
+		S.cfg.screen_off_min = c->n & 0xFF;
+		S.cfg.pixel_shift = (c->n & 0x100) != 0;
+		plat_mutex_unlock(&S.cfg_lock);
+		save_config();
+		break;
 	}
 }
 

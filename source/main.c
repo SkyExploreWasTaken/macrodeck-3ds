@@ -202,6 +202,8 @@ typedef enum {
 	ACT_MENU,
 	ACT_UPDATE,
 	ACT_CREDITS,
+	ACT_SCREEN_OFF,
+	ACT_PIXEL_SHIFT,
 	ACT_CREDITS_BACK,
 	ACT_HOST, // + index
 } Action;
@@ -327,6 +329,68 @@ static void prompt_pairing_code(void)
 	client_cmd(CMD_PAIR, code, NULL, 0);
 }
 
+/* ---------- screen protection ---------- */
+
+#define PIXEL_SHIFT_MS (6 * 60 * 1000)
+
+static int g_screen_off_min = 3;   // 0 = never
+static bool g_pixel_shift = true;
+static bool g_lcd_ok;
+static bool g_backlight_off;
+static bool g_wake_only;           // swallow input until every key and the stylus are released
+static u64 g_last_input;
+static int g_shift_idx;
+static u64 g_shift_at;
+static int g_dx, g_dy;
+
+// A one-pixel walk around the home position, so nothing ever moves more than a pixel off the edges.
+static const signed char g_shift_steps[][2] = {
+	{0, 0}, {1, 0}, {1, 1}, {0, 1}, {-1, 1}, {-1, 0}, {-1, -1}, {0, -1}, {1, -1},
+};
+
+static void backlight(bool on)
+{
+	if (!g_lcd_ok || g_backlight_off == !on) return;
+	if (on) GSPLCD_PowerOnBacklight(GSPLCD_SCREEN_BOTH);
+	else GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_BOTH);
+	g_backlight_off = !on;
+}
+
+static void save_screen_settings(void)
+{
+	client_cmd(CMD_SET_SCREEN, NULL, NULL, (g_screen_off_min & 0xFF) | (g_pixel_shift ? 0x100 : 0));
+}
+
+// Idle tracking, wake-only input and the pixel shift. Clears the input a wake swallows.
+static void screen_protect(u32 *down, u32 *held, u32 *up)
+{
+	u64 now = osGetTime();
+	if (g_backlight_off && (*down || *held)) {
+		backlight(true);
+		g_wake_only = true; // this touch or press only wakes the screen
+	}
+	if (g_wake_only) {
+		bool released = *held == 0;
+		*down = *held = *up = 0;
+		if (released) g_wake_only = false;
+		g_last_input = now;
+		return;
+	}
+	if (*down || *held || *up) g_last_input = now;
+	if (!g_backlight_off && g_screen_off_min > 0 && now - g_last_input >= (u64)g_screen_off_min * 60000) {
+		backlight(false);
+	}
+
+	if (!g_pixel_shift) {
+		g_dx = g_dy = 0;
+	} else if (now >= g_shift_at) {
+		g_shift_idx = (g_shift_idx + 1) % (int)(sizeof g_shift_steps / sizeof g_shift_steps[0]);
+		g_dx = g_shift_steps[g_shift_idx][0];
+		g_dy = g_shift_steps[g_shift_idx][1];
+		g_shift_at = now + PIXEL_SHIFT_MS;
+	}
+}
+
 static void run_action(int action, int arg)
 {
 	switch (action) {
@@ -365,6 +429,18 @@ static void run_action(int action, int arg)
 	case ACT_CREDITS:
 		g_credits = true;
 		break;
+	case ACT_SCREEN_OFF: {
+		static const int steps[] = {1, 2, 3, 5, 10, 0};
+		int n = (int)(sizeof steps / sizeof steps[0]), i = 0;
+		while (i < n && steps[i] != g_screen_off_min) i++;
+		g_screen_off_min = steps[(i + 1) % n];
+		save_screen_settings();
+		break;
+	}
+	case ACT_PIXEL_SHIFT:
+		g_pixel_shift = !g_pixel_shift;
+		save_screen_settings();
+		break;
 	case ACT_CREDITS_BACK:
 		g_credits = false;
 		break;
@@ -386,7 +462,7 @@ static void run_action(int action, int arg)
 
 static void layout_menu(void)
 {
-	float x = 12, w = BOT_W - 24, h = 25, y = 24, gap = 3;
+	float x = 12, w = BOT_W - 24, h = 23, y = 22, gap = 3;
 	add_button(x, y, w, h, "Find computers on the network", NULL, ACT_DISCOVER, 0, false);
 	y += h + gap;
 	add_button(x, y, w, h, "Enter address manually", NULL, ACT_MANUAL, 0, false);
@@ -411,6 +487,13 @@ static void layout_menu(void)
 	default: snprintf(upd, sizeof upd, "Check for updates"); break;
 	}
 	add_button(x, y, w, h, upd, NULL, ACT_UPDATE, 0, g_upd.state == UPD_AVAILABLE || g_upd.state == UPD_DONE);
+	y += h + gap;
+	char off[40];
+	if (g_screen_off_min) snprintf(off, sizeof off, "Screen off: %d min", g_screen_off_min);
+	else snprintf(off, sizeof off, "Screen off: never");
+	add_button(x, y, (w - gap) / 2, h, off, NULL, ACT_SCREEN_OFF, 0, false);
+	add_button(x + (w + gap) / 2, y, (w - gap) / 2, h, g_pixel_shift ? "Pixel shift: on" : "Pixel shift: off", NULL,
+		ACT_PIXEL_SHIFT, 0, false);
 	y += h + gap;
 	float tw = (w - 2 * gap) / 3;
 	add_button(x, y, tw, h, "Close menu", NULL, ACT_CLOSE_MENU, 0, true);
@@ -693,7 +776,7 @@ static void draw_bottom(void)
 		return;
 	}
 	if (g_menu) {
-		text("Menu", BOT_W / 2, 4, 0.55f, COL_TEXT, C2D_AlignCenter);
+		text("Menu", BOT_W / 2, 3, 0.5f, COL_TEXT, C2D_AlignCenter);
 		draw_buttons();
 		return;
 	}
@@ -961,6 +1044,12 @@ static void on_apt(APT_HookType type, void *param)
 	// Sockets die while the console sleeps; keep that from flashing an error and reconnect on wake.
 	if (type == APTHOOK_ONSLEEP) client_sleep_notice(false);
 	else if (type == APTHOOK_ONWAKEUP) client_sleep_notice(true);
+	// HOME, sleep and wake always get a lit screen, and the idle timer starts over.
+	if (type == APTHOOK_ONSUSPEND || type == APTHOOK_ONSLEEP || type == APTHOOK_ONRESTORE || type == APTHOOK_ONWAKEUP) {
+		backlight(true);
+		g_wake_only = false;
+		g_last_input = osGetTime();
+	}
 }
 
 int main(int argc, char **argv)
@@ -990,6 +1079,11 @@ int main(int argc, char **argv)
 	config_load(&cfg);
 	config_save(&cfg); // persists the generated client id on first launch
 	client_start(&cfg);
+	g_screen_off_min = cfg.screen_off_min;
+	g_pixel_shift = cfg.pixel_shift;
+	g_lcd_ok = R_SUCCEEDED(gspLcdInit());
+	g_last_input = osGetTime();
+	g_shift_at = g_last_input + PIXEL_SHIFT_MS;
 	if (net_ok) client_cmd(CMD_STARTUP, NULL, NULL, 0);
 	else model_toast("Could not start networking. Is Wi-Fi on?");
 	update_init(argc > 0 ? argv[0] : NULL);
@@ -1000,6 +1094,10 @@ int main(int argc, char **argv)
 		u32 down = hidKeysDown(), held = hidKeysHeld(), up = hidKeysUp();
 		touchPosition touch;
 		hidTouchRead(&touch);
+		screen_protect(&down, &held, &up);
+		// Taps land where the shifted UI is drawn.
+		touch.px = (u16)(touch.px - g_dx < 0 ? 0 : touch.px - g_dx > BOT_W - 1 ? BOT_W - 1 : touch.px - g_dx);
+		touch.py = (u16)(touch.py - g_dy < 0 ? 0 : touch.py - g_dy > SCR_H - 1 ? SCR_H - 1 : touch.py - g_dy);
 
 		snapshot();
 		pump_images();
@@ -1037,13 +1135,19 @@ int main(int argc, char **argv)
 		C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
 		C2D_TargetClear(top, COL_BG);
 		C2D_SceneBegin(top);
+		C2D_ViewReset();
+		C2D_ViewTranslate(g_dx, g_dy);
 		draw_top();
 		C2D_TargetClear(bottom, COL_BG);
 		C2D_SceneBegin(bottom);
+		C2D_ViewReset();
+		C2D_ViewTranslate(g_dx, g_dy);
 		draw_bottom();
 		C3D_FrameEnd(0);
 	}
 
+	backlight(true); // never leave the console with a dark screen
+	if (g_lcd_ok) gspLcdExit();
 	client_stop();
 	update_exit();
 	aptUnhook(&g_apt_cookie);

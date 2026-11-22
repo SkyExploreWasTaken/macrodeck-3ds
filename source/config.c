@@ -26,6 +26,8 @@ void config_defaults(Config *c)
 	memset(c, 0, sizeof *c);
 	c->mode = CONN_MODE_AUTO;
 	c->port = DEFAULT_PORT;
+	c->screen_off_min = 3;
+	c->pixel_shift = true;
 	new_client_id(c->client_id, sizeof c->client_id);
 }
 
@@ -65,6 +67,10 @@ bool config_load(Config *c)
 	if (cJSON_IsNumber(mode)) c->mode = mode->valueint == CONN_MODE_MANUAL ? CONN_MODE_MANUAL : CONN_MODE_AUTO;
 	cJSON *port = cJSON_GetObjectItemCaseSensitive(root, "port");
 	if (cJSON_IsNumber(port) && port->valueint > 0 && port->valueint < 65536) c->port = port->valueint;
+	cJSON *off = cJSON_GetObjectItemCaseSensitive(root, "screenOffMinutes");
+	if (cJSON_IsNumber(off) && off->valueint >= 0 && off->valueint <= 60) c->screen_off_min = off->valueint;
+	cJSON *shift = cJSON_GetObjectItemCaseSensitive(root, "pixelShift");
+	if (cJSON_IsBool(shift)) c->pixel_shift = cJSON_IsTrue(shift);
 	read_str(root, "host", c->host, sizeof c->host);
 	read_str(root, "hostName", c->host_name, sizeof c->host_name);
 	read_str(root, "clientId", c->client_id, sizeof c->client_id);
@@ -85,6 +91,8 @@ bool config_save(const Config *c)
 	plat_mkdirs(plat_data_dir());
 	cJSON *root = cJSON_CreateObject();
 	cJSON_AddNumberToObject(root, "mode", c->mode);
+	cJSON_AddNumberToObject(root, "screenOffMinutes", c->screen_off_min);
+	cJSON_AddBoolToObject(root, "pixelShift", c->pixel_shift);
 	cJSON_AddStringToObject(root, "host", c->host);
 	cJSON_AddNumberToObject(root, "port", c->port);
 	cJSON_AddStringToObject(root, "hostName", c->host_name);

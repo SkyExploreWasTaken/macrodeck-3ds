@@ -15,6 +15,7 @@ typedef enum {
 	CMD_FORGET,        // drop the pairing with this host
 	CMD_SET_MODE,      // n = ConnMode
 	CMD_STARTUP,       // run the launch policy (auto-discovery or saved address)
+	CMD_SET_SCREEN,    // n = screen-off minutes | (pixel shift ? 0x100 : 0); just saved
 } CommandType;
 
 void client_start(const Config *initial);

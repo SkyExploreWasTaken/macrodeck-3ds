@@ -57,6 +57,8 @@ the 3DS out.
 - Folder navigation driven by the host, local back (`B`), and profile switching (`L`/`R`)
 - Edits you make in Macro Deck show up on the 3DS right away
 - Reconnects quietly after the console wakes from sleep
+- Screen protection: the backlight turns off after a few idle minutes (set in the menu; the first touch after that
+  only wakes the screen), and the whole UI shifts by a pixel every few minutes against image retention
 - Checks the Nightly build on launch and updates itself from the menu (`START` > **Install update**). After
   updating, the commit at the bottom right of the top screen changes to the new build's
 
