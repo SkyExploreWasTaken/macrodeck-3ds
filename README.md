@@ -10,7 +10,18 @@ lives on the touch screen and the connection status on the top screen. It runs o
 
 ## Install
 
-Grab the latest build from the repository's **Actions** tab (artifact `MacroDeck3DS`) or from **Releases**.
+### Scan with FBI
+
+<img src="meta/qr-cia.png" alt="QR code for the latest MacroDeck3DS.cia" width="200" align="right">
+
+In FBI, choose **Remote Install > Scan QR Code** and point the camera at this code. It always installs the newest
+`.cia` from the [Nightly build](https://github.com/SkyExploreWasTaken/macrodeck-3ds/releases/tag/nightly) release,
+and the app then appears on the HOME Menu.
+
+### Manual
+
+Grab the files from [Releases](https://github.com/SkyExploreWasTaken/macrodeck-3ds/releases) (the **Nightly build**
+tracks `main`, `v*` releases are stable) or from the **Actions** tab (artifact `MacroDeck3DS`).
 
 | Format | How |
 | --- | --- |
@@ -58,7 +69,8 @@ make cia    # MacroDeck3DS.cia
 
 Or with Docker: `docker run --rm -v "$PWD:/src" -w /src devkitpro/devkitarm make`.
 
-GitHub Actions builds both formats on every push. Tagging `v*` publishes a release.
+GitHub Actions builds both formats on every push, and each push to `main` refreshes the **Nightly build**
+pre-release. Tagging `v*` publishes a stable release.
 
 `tools/build_desktop_test.sh` builds the networking and protocol core for Linux/macOS (`build-desktop/desktop_test`),
 so it can be tested against a real Macro Deck host without a console.
@@ -74,4 +86,4 @@ so it can be tested against a real Macro Deck host without a console.
 | `source/mdns.c` | DNS-SD browser for `_macrodeck._tcp` |
 | `source/imgdecode.c` | Icon decoding (stb_image + libwebp) |
 | `lib/` | Vendored cJSON (MIT), stb_image (public domain), libwebp decoder (BSD) |
-| `meta/` | Icon, banner, banner sound and the CIA's RSF (`tools/make_art.py` regenerates the art) |
+| `meta/` | Icon, banner, banner sound, the CIA's RSF (`tools/make_art.py` regenerates the art) and the install QR code |
