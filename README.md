@@ -1,5 +1,9 @@
 # Macro Deck for 3DS
 
+> **Community project.** This is an unofficial client made by the community. It is not made, maintained or
+> supported by the Macro Deck team, so please report problems
+> [in this repository](https://github.com/SkyExploreWasTaken/macrodeck-3ds/issues), not to Macro Deck.
+
 A [Macro Deck 3](https://github.com/Macro-Deck-App/Macro-Deck) client for the Nintendo 3DS family. Your deck
 lives on the touch screen and the connection status on the top screen. It runs on Old and New 3DS/2DS models.
 
