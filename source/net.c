@@ -96,32 +96,40 @@ int tcp_connect(const char *host, int port, int timeout_ms)
 		return -1;
 	}
 	if (rc < 0) {
+		// Wait for the connect to finish. SO_ERROR alone can't be trusted here: the 3DS keeps reporting -26
+		// ("in progress") on a socket that is already connected, so ask for the peer address instead, which
+		// only succeeds once the connection is up.
 		uint64_t deadline = plat_ms() + (uint64_t)timeout_ms;
-		int w, err;
+		bool connected = false, answered = false;
+		int err = 0;
 		for (;;) {
 			int left = (int)(deadline - plat_ms());
-			w = left > 0 ? sock_wait(fd, 2, left) : 0;
-			err = 0;
-			socklen_t elen = sizeof err;
-			if (w != 0 && getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &elen) != 0) err = 0;
-			// Still connecting (the 3DS can report this as -26): keep waiting until the deadline.
-			if (w != 0 && (err == EINPROGRESS || err == -26 || err == EALREADY)) {
-				plat_sleep_ms(20);
-				continue;
+			if (left <= 0) break;
+			int w = sock_wait(fd, 2, left < 200 ? left : 200);
+			if (w != 0) {
+				answered = true;
+				struct sockaddr_in peer;
+				socklen_t plen = sizeof peer;
+				if (getpeername(fd, (struct sockaddr *)&peer, &plen) == 0) {
+					connected = true;
+					break;
+				}
+				socklen_t elen = sizeof err;
+				if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &elen) != 0) err = 0;
+				if (w == 1 && err == 0) {
+					connected = true; // writable with no error: the usual sign everywhere else
+					break;
+				}
+				// The 3DS gives raw SOC codes: -14 is "refused", -23 "no route to host".
+				if (err == ECONNREFUSED || err == -14 || err == EHOSTUNREACH || err == -23) break;
+				plat_sleep_ms(30);
 			}
-			break;
 		}
-		if (w == 0) {
-			net_set_error("no answer to connect");
-			close(fd);
-			return -1;
-		}
-		// The 3DS reports SO_ERROR as a raw negative SOC code: -14 is "refused", -23 "no route to host".
-		if (w < 0 || err != 0) {
+		if (!connected) {
 			if (err == ECONNREFUSED || err == -14) net_set_error("connection refused");
 			else if (err == EHOSTUNREACH || err == -23) net_set_error("no route to that computer");
-			else if (err) net_set_error("connect failed, error %d", err);
-			else net_set_error("connect failed");
+			else if (!answered) net_set_error("no answer to connect");
+			else net_set_error("connect did not finish, error %d", err);
 			close(fd);
 			return -1;
 		}
