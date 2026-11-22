@@ -87,20 +87,6 @@ int tcp_connect(const char *host, int port, int timeout_ms)
 		net_set_error("no free socket, error %d", errno);
 		return -1;
 	}
-#ifdef __3DS__
-	// The 3DS stack tends to hand out the same local port again right away. The computer still holds the last
-	// connection on that port in TIME_WAIT and drops the new one, so pick a random high port ourselves.
-	{
-		struct sockaddr_in local;
-		memset(&local, 0, sizeof local);
-		local.sin_family = AF_INET;
-		local.sin_addr.s_addr = htonl(INADDR_ANY);
-		uint16_t r = 0;
-		plat_random(&r, sizeof r);
-		local.sin_port = htons((unsigned short)(49152 + r % 16000));
-		bind(fd, (struct sockaddr *)&local, sizeof local); // on failure the stack picks a port as usual
-	}
-#endif
 	set_nonblocking(fd);
 
 	int rc = connect(fd, (struct sockaddr *)&addr, sizeof addr);
@@ -110,16 +96,32 @@ int tcp_connect(const char *host, int port, int timeout_ms)
 		return -1;
 	}
 	if (rc < 0) {
-		int w = sock_wait(fd, 2, timeout_ms);
-		int err = 0;
-		socklen_t elen = sizeof err;
-		if (w != 0 && getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &elen) == 0 && err != 0) {
-			net_set_error(err == ECONNREFUSED ? "connection refused" : "connect failed, error %d", err);
+		uint64_t deadline = plat_ms() + (uint64_t)timeout_ms;
+		int w, err;
+		for (;;) {
+			int left = (int)(deadline - plat_ms());
+			w = left > 0 ? sock_wait(fd, 2, left) : 0;
+			err = 0;
+			socklen_t elen = sizeof err;
+			if (w != 0 && getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &elen) != 0) err = 0;
+			// Still connecting (the 3DS can report this as -26): keep waiting until the deadline.
+			if (w != 0 && (err == EINPROGRESS || err == -26 || err == EALREADY)) {
+				plat_sleep_ms(20);
+				continue;
+			}
+			break;
+		}
+		if (w == 0) {
+			net_set_error("no answer to connect");
 			close(fd);
 			return -1;
 		}
-		if (w != 1) {
-			net_set_error(w == 0 ? "no answer to connect" : "connect failed while waiting");
+		// The 3DS reports SO_ERROR as a raw negative SOC code: -14 is "refused", -23 "no route to host".
+		if (w < 0 || err != 0) {
+			if (err == ECONNREFUSED || err == -14) net_set_error("connection refused");
+			else if (err == EHOSTUNREACH || err == -23) net_set_error("no route to that computer");
+			else if (err) net_set_error("connect failed, error %d", err);
+			else net_set_error("connect failed");
 			close(fd);
 			return -1;
 		}
