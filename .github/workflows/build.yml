@@ -22,16 +22,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          apt-get update -qq && apt-get install -y -qq unzip curl jq >/dev/null
+          apt-get update -qq && apt-get install -y -qq unzip curl jq git g++ make >/dev/null
           api() { curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$1/releases/latest"; }
           mkdir -p /tmp/tools && cd /tmp/tools
-          url=$(api 3DSGuy/Project_CTR | jq -r '.assets[].browser_download_url' | grep -i 'makerom' | grep -i 'ubuntu' | head -n1)
-          echo "makerom: $url"
-          curl -fsSL -o makerom.zip "$url" && unzip -o -q makerom.zip -d makerom
+          # The prebuilt makerom needs a newer glibc than this container has, so build it from the latest release's source.
+          tag=$(api 3DSGuy/Project_CTR | jq -r '.tag_name')
+          echo "makerom: Project_CTR $tag"
+          git clone -q --depth 1 --branch "$tag" https://github.com/3DSGuy/Project_CTR.git ctr
+          make -C ctr/makerom deps >/dev/null
+          make -C ctr/makerom -j"$(nproc)" >/dev/null
+          install -m755 "$(find ctr/makerom -type f -name makerom -perm -u+x | head -n1)" /usr/local/bin/makerom
           url=$(api Epicpkmn11/bannertool | jq -r '.assets[].browser_download_url' | grep -i '\.zip$' | head -n1)
           echo "bannertool: $url"
           curl -fsSL -o bannertool.zip "$url" && unzip -o -q bannertool.zip -d bannertool
-          install -m755 "$(find makerom -type f -name makerom | head -n1)" /usr/local/bin/makerom
           install -m755 "$(find bannertool -type f -path '*linux-x86_64*' -name bannertool | head -n1)" /usr/local/bin/bannertool
           makerom -version || true
 
