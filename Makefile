@@ -23,9 +23,14 @@ GFXBUILD	:=	$(BUILD)
 APP_TITLE		:=	Macro Deck
 APP_DESCRIPTION	:=	Macro Deck 3 client
 APP_AUTHOR		:=	SkyExploreWasTaken
-APP_VERSION_MAJOR	:=	1
-APP_VERSION_MINOR	:=	0
-APP_VERSION_MICRO	:=	0
+# The version comes from the release (make VERSION=1.2.3, which CI passes), else from the newest v* git tag.
+# VERSION_SUFFIX marks builds that are not a release, like nightlies ("-nightly") or local builds ("-dev").
+VERSION			?=	$(patsubst v%,%,$(shell git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || echo v1.0.0))
+VERSION_SUFFIX	?=	-dev
+VERSION_PARTS	:=	$(subst ., ,$(VERSION))
+APP_VERSION_MAJOR	:=	$(or $(word 1,$(VERSION_PARTS)),1)
+APP_VERSION_MINOR	:=	$(or $(word 2,$(VERSION_PARTS)),0)
+APP_VERSION_MICRO	:=	$(or $(word 3,$(VERSION_PARTS)),0)
 APP_BUILD		:=	$(shell git rev-parse --short=7 HEAD 2>/dev/null || echo dev)
 ICON		:=	meta/icon.png
 
@@ -43,7 +48,7 @@ CFLAGS	:=	-g -Wall -O2 -mword-relocations \
 			-ffunction-sections -fdata-sections \
 			$(ARCH)
 
-CFLAGS	+=	$(INCLUDE) -D__3DS__ -DWEBP_USE_THREAD=0 -DAPP_VERSION_STR=\"$(APP_VERSION_MAJOR).$(APP_VERSION_MINOR).$(APP_VERSION_MICRO)\" -DAPP_BUILD_STR=\"$(APP_BUILD)\"
+CFLAGS	+=	$(INCLUDE) -D__3DS__ -DWEBP_USE_THREAD=0 -DAPP_VERSION_STR=\"$(APP_VERSION_MAJOR).$(APP_VERSION_MINOR).$(APP_VERSION_MICRO)$(VERSION_SUFFIX)\" -DAPP_BUILD_STR=\"$(APP_BUILD)\"
 
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 

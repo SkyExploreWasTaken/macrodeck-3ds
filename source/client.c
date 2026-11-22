@@ -14,7 +14,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define APP_VERSION "1.0.0"
+#ifdef APP_VERSION_STR
+#define APP_VERSION APP_VERSION_STR
+#else
+#define APP_VERSION "dev"
+#endif
 #define HTTP_TIMEOUT 12000
 #define STALE_AFTER_MS 60000
 #define MAX_PENDING 64

@@ -21,6 +21,8 @@ jobs:
     container: devkitpro/devkitarm:latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, for the version of nightly builds
 
       - name: Install CIA tools (makerom, bannertool)
         env:
@@ -43,13 +45,26 @@ jobs:
           install -m755 "$(find bannertool -type f -path '*linux-x86_64*' -name bannertool | head -n1)" /usr/local/bin/bannertool
           makerom -version || true
 
-      - name: Build .3dsx
+      - name: Pick the version
+        id: ver
+        env:
+          INPUT: ${{ inputs.version }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          make -j"$(nproc)"
+          case "$GITHUB_REF" in refs/tags/v*) tag="${GITHUB_REF#refs/tags/}" ;; *) tag= ;; esac
+          if [ -n "$INPUT" ]; then v="$INPUT"; suffix=
+          elif [ -n "$tag" ]; then v="$tag"; suffix=
+          else v=$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || echo v1.0.0); suffix=-nightly
+          fi
+          echo "Building ${v#v}$suffix"
+          echo "version=${v#v}" >> "$GITHUB_OUTPUT"
+          echo "suffix=$suffix" >> "$GITHUB_OUTPUT"
+
+      - name: Build .3dsx
+        run: make -j"$(nproc)" VERSION="${{ steps.ver.outputs.version }}" VERSION_SUFFIX="${{ steps.ver.outputs.suffix }}"
 
       - name: Build .cia
-        run: make cia
+        run: make cia VERSION="${{ steps.ver.outputs.version }}" VERSION_SUFFIX="${{ steps.ver.outputs.suffix }}"
 
       - uses: actions/upload-artifact@v4
         with:
