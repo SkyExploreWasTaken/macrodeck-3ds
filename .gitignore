@@ -1,0 +1,8 @@
+build/
+build-desktop/
+md3ds-data/
+*.3dsx
+*.cia
+*.elf
+*.smdh
+*.map

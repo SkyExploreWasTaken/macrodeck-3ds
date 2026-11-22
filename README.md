@@ -1,0 +1,77 @@
+# Macro Deck for 3DS
+
+A [Macro Deck 3](https://github.com/Macro-Deck-App/Macro-Deck) client for the Nintendo 3DS family. Your deck
+lives on the touch screen and the connection status on the top screen. It runs on Old and New 3DS/2DS models.
+
+- **Bottom screen:** the folder's grid of buttons, sliders and displays. Tap to press, hold to long-press, and drag a slider.
+- **Top screen:** the computer you're connected to, the profile and folder you're in, the time, battery and Wi-Fi, plus
+  any notifications from Macro Deck.
+- **Controls:** `L`/`R` switch profiles, `B` goes back a folder, `SELECT` reconnects, `START` opens the menu.
+
+## Install
+
+Grab the latest build from the repository's **Actions** tab (artifact `MacroDeck3DS`) or from **Releases**.
+
+| Format | How |
+| --- | --- |
+| `.cia` | Copy to the SD card and install it with FBI. It then appears on the HOME Menu. |
+| `.3dsx` | Copy to `sdmc:/3ds/` and start it from the Homebrew Launcher. |
+
+## Connect
+
+1. In Macro Deck on your computer, turn on **Settings > Network > Show on the local network** (needed for
+   auto-discovery).
+2. Start the app. In the default **auto-discovery** mode it looks for Macro Deck on your Wi-Fi and connects to the
+   computer it finds, or lets you pick one when there are several.
+3. The first time, it asks for a **pairing code**. Click the network icon at the top right of Macro Deck and type
+   the 6-digit code shown there. The 3DS stays signed in after that.
+
+To use a fixed address instead, open the menu (`START`), choose **Enter address manually** and type the computer's
+IP and the **Listening port** from Macro Deck's **Settings > Network** (8193 by default). Manual entry also switches
+the launch behaviour to **use saved address**. You can switch it back from the same menu at any time.
+
+Settings and the sign-in are stored in `sdmc:/3ds/MacroDeck3DS/config.json`. **Forget pairing** in the menu signs
+the 3DS out.
+
+## What works
+
+- Pairing via code, automatic token refresh, and reconnecting when Wi-Fi or the host drops
+- Live widgets through Macro Deck's UI sessions: action buttons with labels, colours and icons (PNG/JPEG/GIF/WebP),
+  plus states, clocks, timers and anything else that renders text, images or a level
+- Press, long-press, press-start/end and slider changes
+- Folder navigation driven by the host, local back (`B`), and profile switching (`L`/`R`)
+- Edits you make in Macro Deck show up on the 3DS right away
+
+Not yet supported: animated icons (only the first frame shows), custom fonts, video streams, and widget-specific
+gestures beyond press and slide.
+
+## Build
+
+Requires [devkitPro](https://devkitpro.org/wiki/Getting_Started) with `3ds-dev` (libctru, citro2d). For the CIA you
+also need [makerom](https://github.com/3DSGuy/Project_CTR/releases) and
+[bannertool](https://github.com/Epicpkmn11/bannertool/releases) on your `PATH`.
+
+```sh
+make        # MacroDeck3DS.3dsx
+make cia    # MacroDeck3DS.cia
+```
+
+Or with Docker: `docker run --rm -v "$PWD:/src" -w /src devkitpro/devkitarm make`.
+
+GitHub Actions builds both formats on every push. Tagging `v*` publishes a release.
+
+`tools/build_desktop_test.sh` builds the networking and protocol core for Linux/macOS (`build-desktop/desktop_test`),
+so it can be tested against a real Macro Deck host without a console.
+
+## Layout
+
+| Path | What |
+| --- | --- |
+| `source/main.c` | UI thread: drawing both screens, touch and buttons, keyboard prompts |
+| `source/client.c` | Network worker: Macro Deck 3 REST + `/ws/ui` protocol, sessions, navigation |
+| `source/uitree.c` | Applies UI tree patches and turns a widget tree into a drawable tile |
+| `source/http.c`, `ws.c`, `net.c` | Minimal HTTP/1.1 and WebSocket clients on BSD sockets |
+| `source/mdns.c` | DNS-SD browser for `_macrodeck._tcp` |
+| `source/imgdecode.c` | Icon decoding (stb_image + libwebp) |
+| `lib/` | Vendored cJSON (MIT), stb_image (public domain), libwebp decoder (BSD) |
+| `meta/` | Icon, banner, banner sound and the CIA's RSF (`tools/make_art.py` regenerates the art) |

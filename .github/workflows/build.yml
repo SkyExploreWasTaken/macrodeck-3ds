@@ -1,0 +1,57 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkitarm:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CIA tools (makerom, bannertool)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          apt-get update -qq && apt-get install -y -qq unzip curl jq >/dev/null
+          api() { curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$1/releases/latest"; }
+          mkdir -p /tmp/tools && cd /tmp/tools
+          url=$(api 3DSGuy/Project_CTR | jq -r '.assets[].browser_download_url' | grep -i 'makerom' | grep -i 'ubuntu' | head -n1)
+          echo "makerom: $url"
+          curl -fsSL -o makerom.zip "$url" && unzip -o -q makerom.zip -d makerom
+          url=$(api Epicpkmn11/bannertool | jq -r '.assets[].browser_download_url' | grep -i '\.zip$' | head -n1)
+          echo "bannertool: $url"
+          curl -fsSL -o bannertool.zip "$url" && unzip -o -q bannertool.zip -d bannertool
+          install -m755 "$(find makerom -type f -name makerom | head -n1)" /usr/local/bin/makerom
+          install -m755 "$(find bannertool -type f -path '*linux-x86_64*' -name bannertool | head -n1)" /usr/local/bin/bannertool
+          makerom -version || true
+
+      - name: Build .3dsx
+        run: make -j"$(nproc)"
+
+      - name: Build .cia
+        run: make cia
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MacroDeck3DS
+          path: |
+            MacroDeck3DS.3dsx
+            MacroDeck3DS.cia
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            MacroDeck3DS.3dsx
+            MacroDeck3DS.cia
