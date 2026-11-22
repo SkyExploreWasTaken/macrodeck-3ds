@@ -6,6 +6,11 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Stable version to publish, like v1.0.0 (tags the current commit). Leave empty for a plain build."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -91,3 +96,37 @@ jobs:
           files: |
             MacroDeck3DS.3dsx
             MacroDeck3DS.cia
+
+      - name: Tag the stable release
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          case "$VERSION" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "Version must look like v1.2.3, got '$VERSION'"; exit 1 ;;
+          esac
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git tag "$VERSION"
+          git push origin "refs/tags/$VERSION"
+
+      - name: Stable release
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          name: Macro Deck for 3DS ${{ inputs.version }}
+          make_latest: true
+          body: |
+            Stable release, built from commit ${{ github.sha }}.
+
+            **Install:** scan the QR code in the README with FBI (Remote Install > Scan QR Code), or copy the `.cia` to
+            your SD card and install it with FBI. For the Homebrew Launcher, put the `.3dsx` in `sdmc:/3ds/`.
+
+            Licensed under the GPL-3.0. See the README for connecting to Macro Deck, and THIRD_PARTY_NOTICES.md for the
+            bundled libraries' licenses.
+          files: |
+            MacroDeck3DS.3dsx
+            MacroDeck3DS.cia
+            LICENSE
+            THIRD_PARTY_NOTICES.md

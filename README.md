@@ -13,11 +13,13 @@ lives on the touch screen and the connection status on the top screen. It runs o
 
 ### Scan with FBI
 
-<img src="meta/qr-cia.png" alt="QR code for the latest MacroDeck3DS.cia" width="200" align="right">
+<img src="meta/qr-cia.png" alt="QR code for the latest stable MacroDeck3DS.cia" width="200" align="right">
 
-In FBI, choose **Remote Install > Scan QR Code** and point the camera at this code. It always installs the newest
-`.cia` from the [Nightly build](https://github.com/SkyExploreWasTaken/macrodeck-3ds/releases/tag/nightly) release,
-and the app then appears on the HOME Menu.
+In FBI, choose **Remote Install > Scan QR Code** and point the camera at this code. It installs the `.cia` from the
+[latest stable release](https://github.com/SkyExploreWasTaken/macrodeck-3ds/releases/latest), and the app then
+appears on the HOME Menu. After that the app keeps itself current: it checks the
+[Nightly build](https://github.com/SkyExploreWasTaken/macrodeck-3ds/releases/tag/nightly) on launch and offers
+**Install update** in the `START` menu.
 
 ### Manual
 
@@ -75,7 +77,9 @@ make cia    # MacroDeck3DS.cia
 Or with Docker: `docker run --rm -v "$PWD:/src" -w /src devkitpro/devkitarm make`.
 
 GitHub Actions builds both formats on every push, and each push to `main` refreshes the **Nightly build**
-pre-release. Tagging `v*` publishes a stable release.
+pre-release. To publish a stable release, open **Actions > Build > Run workflow**, enter a version such as `v1.0.1`
+and run it: it tags the commit, builds it and publishes it as the latest release. Pushing a `v*` tag yourself works
+too.
 
 `tools/build_desktop_test.sh` builds the networking and protocol core for Linux/macOS (`build-desktop/desktop_test`),
 so it can be tested against a real Macro Deck host without a console.
@@ -94,3 +98,18 @@ so it can be tested against a real Macro Deck host without a console.
 | `lib/` | Vendored cJSON (MIT), stb_image (public domain), libwebp decoder (BSD) |
 | `data/cacert.bin` | Mozilla CA bundle (MPL 2.0) for HTTPS to GitHub |
 | `meta/` | Icon, banner, banner sound, the CIA's RSF (`tools/make_art.py` regenerates the art) and the install QR code |
+
+## License
+
+Copyright (C) 2026 SkyExploreWasTaken
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public
+License as published by the Free Software Foundation, version 3 ([LICENSE](LICENSE)). It is distributed in the hope
+that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+A PARTICULAR PURPOSE.
+
+Bundled and linked libraries keep their own licenses, all compatible with the GPL-3.0. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+Not affiliated with or endorsed by the Macro Deck project or Nintendo.
+
