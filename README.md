@@ -53,7 +53,8 @@ the 3DS out.
 - Folder navigation driven by the host, local back (`B`), and profile switching (`L`/`R`)
 - Edits you make in Macro Deck show up on the 3DS right away
 - Reconnects quietly after the console wakes from sleep
-- Checks the Nightly build on launch and updates itself from the menu (`START` > **Install update**)
+- Checks the Nightly build on launch and updates itself from the menu (`START` > **Install update**). After
+  updating, the commit at the bottom right of the top screen changes to the new build's
 
 Not yet supported: animated icons (only the first frame shows), custom fonts, video streams, and widget-specific
 gestures beyond press and slide.
