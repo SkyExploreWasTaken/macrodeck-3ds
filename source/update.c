@@ -3,6 +3,7 @@
 
 #include <3ds.h>
 #include <curl/curl.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -192,56 +193,92 @@ void update_check(void)
 /* ---------- install ---------- */
 
 typedef struct {
-	Handle cia;
-	u64 offset;
 	FILE *file;
-	bool failed;
+	int err; // errno of a failed write
 } Sink;
 
 static size_t sink_write(char *ptr, size_t size, size_t n, void *ud)
 {
 	Sink *s = ud;
 	size_t len = size * n;
-	if (s->file) {
-		if (fwrite(ptr, 1, len, s->file) != len) {
-			s->failed = true;
-			return 0;
-		}
-		return len;
-	}
-	u32 written = 0;
-	if (R_FAILED(FSFILE_Write(s->cia, &written, s->offset, ptr, (u32)len, 0)) || written != len) {
-		s->failed = true;
+	if (fwrite(ptr, 1, len, s->file) != len) {
+		s->err = errno ? errno : -1;
 		return 0;
 	}
-	s->offset += len;
 	return len;
+}
+
+// Feeds a downloaded .cia to the system installer, in the same chunks and with the same flush flag FBI and
+// Universal-Updater use.
+static bool install_cia_file(const char *path)
+{
+	FILE *f = fopen(path, "rb");
+	if (!f) {
+		set_status(UPD_FAILED, "Can't reopen the downloaded update");
+		return false;
+	}
+	if (R_FAILED(amInit())) {
+		fclose(f);
+		set_status(UPD_FAILED, "The system installer is not available");
+		return false;
+	}
+	Handle cia;
+	Result rc = AM_StartCiaInstall(MEDIATYPE_SD, &cia);
+	if (R_FAILED(rc)) {
+		amExit();
+		fclose(f);
+		char msg[96];
+		snprintf(msg, sizeof msg, "The installer refused to start (0x%08lX)", (unsigned long)rc);
+		set_status(UPD_FAILED, msg);
+		return false;
+	}
+	const size_t chunk = 128 * 1024;
+	char *buf = malloc(chunk);
+	u64 offset = 0;
+	rc = buf ? 0 : -1;
+	while (R_SUCCEEDED(rc)) {
+		size_t got = fread(buf, 1, chunk, f);
+		if (got == 0) break;
+		u32 written = 0;
+		rc = FSFILE_Write(cia, &written, offset, buf, (u32)got, FS_WRITE_FLUSH);
+		if (R_SUCCEEDED(rc) && written != got) rc = -2;
+		offset += got;
+	}
+	free(buf);
+	fclose(f);
+	char msg[96];
+	if (R_FAILED(rc)) {
+		AM_CancelCIAInstall(cia);
+		amExit();
+		snprintf(msg, sizeof msg, "Installing failed at %lu KB (0x%08lX)", (unsigned long)(offset / 1024),
+			(unsigned long)rc);
+		set_status(UPD_FAILED, msg);
+		return false;
+	}
+	rc = AM_FinishCiaInstall(cia);
+	amExit();
+	if (R_FAILED(rc)) {
+		snprintf(msg, sizeof msg, "The installer rejected the update (0x%08lX)", (unsigned long)rc);
+		set_status(UPD_FAILED, msg);
+		return false;
+	}
+	return true;
 }
 
 static void install_thread(void *arg)
 {
 	(void)arg;
 	bool as_cia = !envIsHomebrew();
-	Sink sink = {0};
-	char tmp[272];
-
-	if (as_cia) {
-		if (R_FAILED(amInit())) {
-			set_status(UPD_FAILED, "The system installer is not available");
-			return;
-		}
-		if (R_FAILED(AM_StartCiaInstall(MEDIATYPE_SD, &sink.cia))) {
-			amExit();
-			set_status(UPD_FAILED, "The system installer refused to start");
-			return;
-		}
-	} else {
-		snprintf(tmp, sizeof tmp, "%s.new", g_self);
-		sink.file = fopen(tmp, "wb");
-		if (!sink.file) {
-			set_status(UPD_FAILED, "Can't write to the SD card");
-			return;
-		}
+	char tmp[300];
+	// Download next to the config first: a complete file on the SD card, then install or swap it in.
+	plat_mkdirs(plat_data_dir());
+	snprintf(tmp, sizeof tmp, "%s/update.tmp", plat_data_dir());
+	Sink sink = {.file = fopen(tmp, "wb")};
+	if (!sink.file) {
+		char msg[96];
+		snprintf(msg, sizeof msg, "Can't write to the SD card (%s)", strerror(errno));
+		set_status(UPD_FAILED, msg);
+		return;
 	}
 
 	CURL *c = new_handle(as_cia ? g_cia_url : g_3dsx_url);
@@ -254,40 +291,32 @@ static void install_thread(void *arg)
 		rc = curl_easy_perform(c);
 		curl_easy_cleanup(c);
 	}
-	bool ok = rc == CURLE_OK && !sink.failed;
+	bool closed = fclose(sink.file) == 0;
+	if (rc != CURLE_OK || !closed) {
+		char msg[96];
+		if (sink.err) snprintf(msg, sizeof msg, "Saving the download failed (%s)", strerror(sink.err));
+		else if (!closed) snprintf(msg, sizeof msg, "Saving the download failed");
+		else snprintf(msg, sizeof msg, "Download failed: %s", curl_easy_strerror(rc));
+		set_status(UPD_FAILED, msg);
+		remove(tmp);
+		return;
+	}
 
+	set_status(UPD_INSTALLING, NULL);
+	bool ok;
 	if (as_cia) {
-		if (ok) {
-			set_status(UPD_INSTALLING, NULL);
-			ok = R_SUCCEEDED(AM_FinishCiaInstall(sink.cia));
-			if (!ok) set_status(UPD_FAILED, "The system installer rejected the update");
-		} else {
-			AM_CancelCIAInstall(sink.cia);
-		}
-		amExit();
+		ok = install_cia_file(tmp);
+		remove(tmp);
 	} else {
-		if (fclose(sink.file) != 0) ok = false;
-		if (ok) {
-			set_status(UPD_INSTALLING, NULL);
-			remove(g_self);
-			if (rename(tmp, g_self) != 0) {
-				ok = false;
-				set_status(UPD_FAILED, "Could not replace the app file");
-			}
-		} else {
-			remove(tmp);
+		remove(g_self);
+		ok = rename(tmp, g_self) == 0;
+		if (!ok) {
+			char msg[96];
+			snprintf(msg, sizeof msg, "Could not replace %s (%s)", g_self, strerror(errno));
+			set_status(UPD_FAILED, msg);
 		}
 	}
 	if (ok) set_status(UPD_DONE, NULL);
-	else {
-		plat_mutex_lock(&g_lock);
-		bool reported = g_status.state == UPD_FAILED;
-		plat_mutex_unlock(&g_lock);
-		if (!reported) {
-			if (rc != CURLE_OK) fail_with("Download failed", rc);
-			else set_status(UPD_FAILED, "Saving the update failed");
-		}
-	}
 }
 
 void update_install(void)

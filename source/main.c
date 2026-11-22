@@ -395,7 +395,7 @@ static void layout_menu(void)
 	case UPD_DOWNLOADING: snprintf(upd, sizeof upd, "Downloading update... %d%%", (int)(g_upd.progress * 100)); break;
 	case UPD_INSTALLING: snprintf(upd, sizeof upd, "Installing update..."); break;
 	case UPD_DONE: snprintf(upd, sizeof upd, "Updated! Tap to close, then reopen"); break;
-	case UPD_FAILED: snprintf(upd, sizeof upd, "%s. Tap to retry", g_upd.message); break;
+	case UPD_FAILED: snprintf(upd, sizeof upd, "Update failed. Tap to retry"); break;
 	default: snprintf(upd, sizeof upd, "Check for updates"); break;
 	}
 	add_button(x, y, w, h, upd, NULL, ACT_UPDATE, 0, g_upd.state == UPD_AVAILABLE || g_upd.state == UPD_DONE);
@@ -936,6 +936,8 @@ int main(int argc, char **argv)
 				model_toast("Update %s available: START > Install update", g_upd.latest);
 			}
 			if (g_upd.state == UPD_DONE) model_toast("Update installed. Close and reopen the app.");
+			// Background checks fail quietly (no Wi-Fi, GitHub down); a failed install says why on the top screen.
+			if (g_upd.state == UPD_FAILED && g_upd_prev != UPD_CHECKING) model_toast("%s", g_upd.message);
 			g_upd_prev = g_upd.state;
 		}
 		build_layout();
