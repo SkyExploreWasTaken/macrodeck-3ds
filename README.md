@@ -52,13 +52,16 @@ the 3DS out.
 - Press, long-press, press-start/end and slider changes
 - Folder navigation driven by the host, local back (`B`), and profile switching (`L`/`R`)
 - Edits you make in Macro Deck show up on the 3DS right away
+- Reconnects quietly after the console wakes from sleep
+- Checks the Nightly build on launch and updates itself from the menu (`START` > **Install update**)
 
 Not yet supported: animated icons (only the first frame shows), custom fonts, video streams, and widget-specific
 gestures beyond press and slide.
 
 ## Build
 
-Requires [devkitPro](https://devkitpro.org/wiki/Getting_Started) with `3ds-dev` (libctru, citro2d). For the CIA you
+Requires [devkitPro](https://devkitpro.org/wiki/Getting_Started) with `3ds-dev` (libctru, citro2d) and `3ds-curl`
+(pulls in mbedTLS and zlib). For the CIA you
 also need [makerom](https://github.com/3DSGuy/Project_CTR/releases) and
 [bannertool](https://github.com/Epicpkmn11/bannertool/releases) on your `PATH`.
 
@@ -85,5 +88,7 @@ so it can be tested against a real Macro Deck host without a console.
 | `source/http.c`, `ws.c`, `net.c` | Minimal HTTP/1.1 and WebSocket clients on BSD sockets |
 | `source/mdns.c` | DNS-SD browser for `_macrodeck._tcp` |
 | `source/imgdecode.c` | Icon decoding (stb_image + libwebp) |
+| `source/update.c` | Update check and self-install (libcurl, the .cia through the system installer) |
 | `lib/` | Vendored cJSON (MIT), stb_image (public domain), libwebp decoder (BSD) |
+| `data/cacert.bin` | Mozilla CA bundle (MPL 2.0) for HTTPS to GitHub |
 | `meta/` | Icon, banner, banner sound, the CIA's RSF (`tools/make_art.py` regenerates the art) and the install QR code |

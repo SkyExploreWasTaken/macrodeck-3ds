@@ -131,15 +131,32 @@ static void set_phase(Phase p, const char *fmt, ...)
 	plat_mutex_unlock(&g_model.lock);
 }
 
+// Until this time, connection errors are not shown: the console was asleep and the link drops are expected.
+static uint64_t g_quiet_until;
+
 static void set_error(const char *fmt, ...)
 {
 	plat_mutex_lock(&g_model.lock);
+	if (plat_ms() < g_quiet_until) {
+		plat_mutex_unlock(&g_model.lock);
+		return;
+	}
 	va_list ap;
 	va_start(ap, fmt);
 	vsnprintf(g_model.error, sizeof g_model.error, fmt, ap);
 	va_end(ap);
 	model_touch();
 	plat_mutex_unlock(&g_model.lock);
+}
+
+void client_sleep_notice(bool waking)
+{
+	plat_mutex_lock(&g_model.lock);
+	g_quiet_until = waking ? plat_ms() + 12000 : UINT64_MAX;
+	g_model.error[0] = 0;
+	model_touch();
+	plat_mutex_unlock(&g_model.lock);
+	if (waking) client_cmd(CMD_RECONNECT, NULL, NULL, 0);
 }
 
 static void save_config(void)

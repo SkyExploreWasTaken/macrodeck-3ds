@@ -15,6 +15,7 @@
 #include "model.h"
 #include "net.h"
 #include "platform.h"
+#include "update.h"
 
 #define TOP_W 400
 #define BOT_W 320
@@ -199,6 +200,7 @@ typedef enum {
 	ACT_CLOSE_MENU,
 	ACT_EXIT,
 	ACT_MENU,
+	ACT_UPDATE,
 	ACT_HOST, // + index
 } Action;
 
@@ -214,8 +216,10 @@ typedef struct {
 static Model V;            // the UI thread's snapshot of g_model
 static uint32_t g_seen_version = 0xFFFFFFFF;
 static bool g_menu;
-static int g_sel;          // highlighted button for D-pad use
 static bool g_quit;
+
+static UpdateStatus g_upd;
+static UpdateState g_upd_prev = UPD_IDLE;
 
 static Button g_buttons[16];
 static int g_nbuttons;
@@ -228,6 +232,7 @@ static bool g_touch_slider;
 static float g_slider_level;
 static bool g_touch_button;
 static int g_touch_button_idx = -1;
+static bool g_touch_inside;
 
 static void snapshot(void)
 {
@@ -351,20 +356,25 @@ static void run_action(int action, int arg)
 	case ACT_EXIT:
 		g_quit = true;
 		break;
+	case ACT_UPDATE:
+		if (g_upd.state == UPD_AVAILABLE) update_install();
+		else if (g_upd.state == UPD_DONE) g_quit = true;
+		else if (g_upd.state == UPD_FAILED && g_upd.latest[0]) update_install();
+		else update_check();
+		break;
 	case ACT_HOST:
 		if (arg >= 0 && arg < V.nfound) {
 			client_cmd(CMD_CONNECT, V.found[arg].ip, V.found[arg].name, V.found[arg].port);
 		}
 		break;
 	}
-	g_sel = 0;
 }
 
 /* ---------- bottom screen layouts ---------- */
 
 static void layout_menu(void)
 {
-	float x = 12, w = BOT_W - 24, h = 26, y = 26, gap = 4;
+	float x = 12, w = BOT_W - 24, h = 25, y = 24, gap = 3;
 	add_button(x, y, w, h, "Find computers on the network", NULL, ACT_DISCOVER, 0, false);
 	y += h + gap;
 	add_button(x, y, w, h, "Enter address manually", NULL, ACT_MANUAL, 0, false);
@@ -376,6 +386,19 @@ static void layout_menu(void)
 	y += h + gap;
 	add_button(x, y, (w - gap) / 2, h, "Reconnect", NULL, ACT_RECONNECT, 0, false);
 	add_button(x + (w + gap) / 2, y, (w - gap) / 2, h, "Forget pairing", NULL, ACT_FORGET, 0, false);
+	y += h + gap;
+	char upd[96];
+	switch (g_upd.state) {
+	case UPD_CHECKING: snprintf(upd, sizeof upd, "Checking for updates..."); break;
+	case UPD_CURRENT: snprintf(upd, sizeof upd, "Up to date (%s). Check again", APP_BUILD_STR); break;
+	case UPD_AVAILABLE: snprintf(upd, sizeof upd, "Install update %s", g_upd.latest); break;
+	case UPD_DOWNLOADING: snprintf(upd, sizeof upd, "Downloading update... %d%%", (int)(g_upd.progress * 100)); break;
+	case UPD_INSTALLING: snprintf(upd, sizeof upd, "Installing update..."); break;
+	case UPD_DONE: snprintf(upd, sizeof upd, "Updated! Tap to close, then reopen"); break;
+	case UPD_FAILED: snprintf(upd, sizeof upd, "%s. Tap to retry", g_upd.message); break;
+	default: snprintf(upd, sizeof upd, "Check for updates"); break;
+	}
+	add_button(x, y, w, h, upd, NULL, ACT_UPDATE, 0, g_upd.state == UPD_AVAILABLE || g_upd.state == UPD_DONE);
 	y += h + gap;
 	add_button(x, y, (w - gap) / 2, h, "Close menu", NULL, ACT_CLOSE_MENU, 0, true);
 	add_button(x + (w + gap) / 2, y, (w - gap) / 2, h, "Exit", NULL, ACT_EXIT, 0, false);
@@ -445,7 +468,7 @@ static void draw_buttons(void)
 {
 	for (int i = 0; i < g_nbuttons; i++) {
 		Button *b = &g_buttons[i];
-		bool hot = i == g_sel || (g_touch_button && g_touch_button_idx == i);
+		bool hot = g_touch_button && g_touch_button_idx == i && g_touch_inside;
 		u32 fill = b->primary ? COL_ACCENT : (hot ? COL_PANEL_HI : COL_PANEL);
 		if (b->primary && hot) fill = C2D_Color32(0x6B, 0x92, 0xFF, 0xFF);
 		rrect(b->x, b->y, b->w, b->h, 6, fill);
@@ -783,33 +806,33 @@ static void draw_top(void)
 
 /* ---------- input ---------- */
 
+static bool in_button(const Button *b, int px, int py)
+{
+	return px >= b->x && px < b->x + b->w && py >= b->y && py < b->y + b->h;
+}
+
+// Menu and status buttons are touch-only: a tap runs the button it started and ended on.
 static void handle_buttons_input(u32 down, u32 held, u32 up, touchPosition *touch)
 {
-	(void)held;
 	if (g_nbuttons == 0) return;
-	if (g_sel >= g_nbuttons) g_sel = 0;
-	if (down & (KEY_DOWN | KEY_CPAD_DOWN | KEY_RIGHT | KEY_CPAD_RIGHT)) g_sel = (g_sel + 1) % g_nbuttons;
-	if (down & (KEY_UP | KEY_CPAD_UP | KEY_LEFT | KEY_CPAD_LEFT)) g_sel = (g_sel + g_nbuttons - 1) % g_nbuttons;
-	if (down & KEY_A) {
-		Button b = g_buttons[g_sel];
-		run_action(b.action, b.arg);
-		return;
-	}
 	if (down & KEY_TOUCH) {
 		g_touch_button = false;
 		for (int i = 0; i < g_nbuttons; i++) {
-			Button *b = &g_buttons[i];
-			if (touch->px >= b->x && touch->px < b->x + b->w && touch->py >= b->y && touch->py < b->y + b->h) {
+			if (in_button(&g_buttons[i], touch->px, touch->py)) {
 				g_touch_button = true;
 				g_touch_button_idx = i;
-				g_sel = i;
+				g_touch_inside = true;
 			}
 		}
+	} else if ((held & KEY_TOUCH) && g_touch_button && g_touch_button_idx < g_nbuttons) {
+		g_touch_inside = in_button(&g_buttons[g_touch_button_idx], touch->px, touch->py);
 	}
 	if ((up & KEY_TOUCH) && g_touch_button) {
 		g_touch_button = false;
-		Button b = g_buttons[g_touch_button_idx];
-		run_action(b.action, b.arg);
+		if (g_touch_inside && g_touch_button_idx < g_nbuttons) {
+			Button b = g_buttons[g_touch_button_idx];
+			run_action(b.action, b.arg);
+		}
 	}
 }
 
@@ -857,7 +880,17 @@ static void handle_deck_input(u32 down, u32 held, u32 up, touchPosition *touch)
 	if (down & KEY_R) client_cmd(CMD_PROFILE_STEP, NULL, NULL, 1);
 }
 
-int main(void)
+static aptHookCookie g_apt_cookie;
+
+static void on_apt(APT_HookType type, void *param)
+{
+	(void)param;
+	// Sockets die while the console sleeps; keep that from flashing an error and reconnect on wake.
+	if (type == APTHOOK_ONSLEEP) client_sleep_notice(false);
+	else if (type == APTHOOK_ONWAKEUP) client_sleep_notice(true);
+}
+
+int main(int argc, char **argv)
 {
 	gfxInitDefault();
 	ptmuInit();
@@ -872,6 +905,7 @@ int main(void)
 
 	// Keep the network alive while the lid is closed would drain the battery; we just reconnect on wake.
 	aptSetSleepAllowed(true);
+	aptHook(&g_apt_cookie, on_apt, NULL);
 
 	model_init();
 	memset(&V, 0, sizeof V);
@@ -885,6 +919,8 @@ int main(void)
 	client_start(&cfg);
 	if (net_ok) client_cmd(CMD_STARTUP, NULL, NULL, 0);
 	else model_toast("Could not start networking. Is Wi-Fi on?");
+	update_init(argc > 0 ? argv[0] : NULL);
+	if (net_ok) update_check();
 
 	while (aptMainLoop() && !g_quit) {
 		hidScanInput();
@@ -894,11 +930,19 @@ int main(void)
 
 		snapshot();
 		pump_images();
+		update_status(&g_upd);
+		if (g_upd.state != g_upd_prev) {
+			if (g_upd.state == UPD_AVAILABLE && g_upd_prev == UPD_CHECKING) {
+				model_toast("Update %s available: START > Install update", g_upd.latest);
+			}
+			if (g_upd.state == UPD_DONE) model_toast("Update installed. Close and reopen the app.");
+			g_upd_prev = g_upd.state;
+		}
 		build_layout();
 
 		if (down & KEY_START) {
 			g_menu = !g_menu;
-			g_sel = 0;
+			g_touch_button = false;
 			g_touch_widget = -1;
 			build_layout();
 		} else if (down & KEY_SELECT) {
@@ -923,6 +967,8 @@ int main(void)
 	}
 
 	client_stop();
+	update_exit();
+	aptUnhook(&g_apt_cookie);
 	net_exit();
 	for (int i = 0; i < MAX_IMAGES; i++) {
 		if (g_tex_live[i]) C3D_TexDelete(&g_tex[i]);
