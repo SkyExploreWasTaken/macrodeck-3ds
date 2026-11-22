@@ -58,3 +58,22 @@ jobs:
           files: |
             MacroDeck3DS.3dsx
             MacroDeck3DS.cia
+
+      - name: Move the nightly tag
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git tag -f nightly
+          git push -f origin refs/tags/nightly
+
+      - name: Nightly release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly build
+          prerelease: true
+          body: Latest build of main (${{ github.sha }}). Install the .cia with FBI, or put the .3dsx in sdmc:/3ds/.
+          files: |
+            MacroDeck3DS.3dsx
+            MacroDeck3DS.cia
