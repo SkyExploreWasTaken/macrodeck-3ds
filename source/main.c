@@ -233,6 +233,9 @@ static float g_slider_level;
 static bool g_touch_button;
 static int g_touch_button_idx = -1;
 static bool g_touch_inside;
+// Key navigation in the menus: the highlighted button, shown once the D-pad or Circle Pad is used.
+static int g_sel;
+static bool g_keys_active;
 
 static void snapshot(void)
 {
@@ -448,6 +451,13 @@ static bool deck_visible(void)
 
 static void build_layout(void)
 {
+	// A different screen starts its key highlight at the top.
+	static int last_screen = -1;
+	int screen = g_menu ? 1000 : (int)V.phase;
+	if (screen != last_screen) {
+		g_sel = 0;
+		last_screen = screen;
+	}
 	g_nbuttons = 0;
 	if (g_menu) {
 		layout_menu();
@@ -468,7 +478,7 @@ static void draw_buttons(void)
 {
 	for (int i = 0; i < g_nbuttons; i++) {
 		Button *b = &g_buttons[i];
-		bool hot = g_touch_button && g_touch_button_idx == i && g_touch_inside;
+		bool hot = (g_touch_button && g_touch_button_idx == i && g_touch_inside) || (g_keys_active && i == g_sel);
 		u32 fill = b->primary ? COL_ACCENT : (hot ? COL_PANEL_HI : COL_PANEL);
 		if (b->primary && hot) fill = C2D_Color32(0x6B, 0x92, 0xFF, 0xFF);
 		rrect(b->x, b->y, b->w, b->h, 6, fill);
@@ -811,11 +821,26 @@ static bool in_button(const Button *b, int px, int py)
 	return px >= b->x && px < b->x + b->w && py >= b->y && py < b->y + b->h;
 }
 
-// Menu and status buttons are touch-only: a tap runs the button it started and ended on.
+// Menu and status buttons: a tap runs the button it started and ended on, or move with the D-pad or
+// Circle Pad and press A. The deck itself stays touch-only.
 static void handle_buttons_input(u32 down, u32 held, u32 up, touchPosition *touch)
 {
 	if (g_nbuttons == 0) return;
+	if (g_sel >= g_nbuttons) g_sel = 0;
+	u32 next = KEY_DOWN | KEY_CPAD_DOWN | KEY_RIGHT | KEY_CPAD_RIGHT;
+	u32 prev = KEY_UP | KEY_CPAD_UP | KEY_LEFT | KEY_CPAD_LEFT;
+	if (down & (next | prev)) {
+		if (g_keys_active) g_sel = (down & next) ? (g_sel + 1) % g_nbuttons : (g_sel + g_nbuttons - 1) % g_nbuttons;
+		g_keys_active = true; // the first press only shows where the highlight is
+		return;
+	}
+	if ((down & KEY_A) && g_keys_active) {
+		Button b = g_buttons[g_sel];
+		run_action(b.action, b.arg);
+		return;
+	}
 	if (down & KEY_TOUCH) {
+		g_keys_active = false;
 		g_touch_button = false;
 		for (int i = 0; i < g_nbuttons; i++) {
 			if (in_button(&g_buttons[i], touch->px, touch->py)) {
@@ -945,6 +970,7 @@ int main(int argc, char **argv)
 		if (down & KEY_START) {
 			g_menu = !g_menu;
 			g_touch_button = false;
+			g_sel = 0;
 			g_touch_widget = -1;
 			build_layout();
 		} else if (down & KEY_SELECT) {
