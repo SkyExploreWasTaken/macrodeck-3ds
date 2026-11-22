@@ -126,7 +126,7 @@ static void set_phase(Phase p, const char *fmt, ...)
 		vsnprintf(g_model.status, sizeof g_model.status, fmt, ap);
 		va_end(ap);
 	}
-	if (p != PHASE_ERROR && p != PHASE_NEED_PAIRING) g_model.error[0] = 0;
+	if (p != PHASE_ERROR && p != PHASE_NEED_PAIRING && p != PHASE_RETRY_WAIT) g_model.error[0] = 0;
 	model_touch();
 	plat_mutex_unlock(&g_model.lock);
 }
@@ -646,7 +646,7 @@ static bool handle_api_failure(const HttpResponse *rs, const char *what)
 		return false;
 	}
 	if (rs->status < 0) {
-		set_error("Lost the connection to %s.", S.cfg.host);
+		set_error("Lost the connection to %s (%s).", S.cfg.host, net_error());
 	} else {
 		set_error("The host answered %d while loading %s.", rs->status, what);
 	}
@@ -814,8 +814,8 @@ static void do_connect(void)
 	HttpResponse rs;
 	http_do(S.cfg.host, S.cfg.port, &rq, &rs, 6000);
 	if (rs.status != 200) {
-		set_error(rs.status < 0 ? "Can't reach %s:%d. Is Macro Deck running?" : "%s:%d is not a Macro Deck 3 host.",
-			S.cfg.host, S.cfg.port);
+		if (rs.status < 0) set_error("Can't reach %s:%d (%s). Is Macro Deck running?", S.cfg.host, S.cfg.port, net_error());
+		else set_error("%s:%d is not a Macro Deck 3 host.", S.cfg.host, S.cfg.port);
 		http_free(&rs);
 		S.retry_at = plat_ms() + 5000;
 		set_phase(PHASE_RETRY_WAIT, "Retrying shortly...");
@@ -922,7 +922,7 @@ static void do_pair(const char *code)
 	}
 	if (rs.status == 429) set_error("Too many wrong codes. Wait a moment, then try the new code.");
 	else if (rs.status == 401 || rs.status == 400) set_error("That code is wrong or has expired.");
-	else if (rs.status < 0) set_error("Can't reach %s.", S.cfg.host);
+	else if (rs.status < 0) set_error("Can't reach %s:%d while pairing (%s).", S.cfg.host, S.cfg.port, net_error());
 	else set_error("Pairing failed (HTTP %d).", rs.status);
 	http_free(&rs);
 	set_phase(PHASE_NEED_PAIRING, "Pair this 3DS with Macro Deck");

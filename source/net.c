@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <poll.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,6 +44,21 @@ void net_exit(void)
 #endif
 }
 
+static char g_net_error[96];
+
+const char *net_error(void)
+{
+	return g_net_error;
+}
+
+void net_set_error(const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(g_net_error, sizeof g_net_error, fmt, ap);
+	va_end(ap);
+}
+
 static void set_nonblocking(int fd)
 {
 	int flags = fcntl(fd, F_GETFL, 0);
@@ -52,33 +68,58 @@ static void set_nonblocking(int fd)
 
 int tcp_connect(const char *host, int port, int timeout_ms)
 {
+	g_net_error[0] = 0;
 	struct sockaddr_in addr;
 	memset(&addr, 0, sizeof addr);
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons((unsigned short)port);
 	if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
 		struct hostent *he = gethostbyname(host);
-		if (!he || !he->h_addr_list || !he->h_addr_list[0]) return -1;
+		if (!he || !he->h_addr_list || !he->h_addr_list[0]) {
+			net_set_error("unknown host");
+			return -1;
+		}
 		memcpy(&addr.sin_addr, he->h_addr_list[0], sizeof addr.sin_addr);
 	}
 
 	int fd = socket(AF_INET, SOCK_STREAM, 0);
-	if (fd < 0) return -1;
+	if (fd < 0) {
+		net_set_error("no free socket, error %d", errno);
+		return -1;
+	}
+#ifdef __3DS__
+	// The 3DS stack tends to hand out the same local port again right away. The computer still holds the last
+	// connection on that port in TIME_WAIT and drops the new one, so pick a random high port ourselves.
+	{
+		struct sockaddr_in local;
+		memset(&local, 0, sizeof local);
+		local.sin_family = AF_INET;
+		local.sin_addr.s_addr = htonl(INADDR_ANY);
+		uint16_t r = 0;
+		plat_random(&r, sizeof r);
+		local.sin_port = htons((unsigned short)(49152 + r % 16000));
+		bind(fd, (struct sockaddr *)&local, sizeof local); // on failure the stack picks a port as usual
+	}
+#endif
 	set_nonblocking(fd);
 
 	int rc = connect(fd, (struct sockaddr *)&addr, sizeof addr);
 	if (rc < 0 && errno != EINPROGRESS && errno != EWOULDBLOCK && errno != EAGAIN) {
+		net_set_error("connect failed, error %d", errno);
 		close(fd);
 		return -1;
 	}
 	if (rc < 0) {
-		if (sock_wait(fd, 2, timeout_ms) != 1) {
+		int w = sock_wait(fd, 2, timeout_ms);
+		int err = 0;
+		socklen_t elen = sizeof err;
+		if (w != 0 && getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &elen) == 0 && err != 0) {
+			net_set_error(err == ECONNREFUSED ? "connection refused" : "connect failed, error %d", err);
 			close(fd);
 			return -1;
 		}
-		int err = 0;
-		socklen_t elen = sizeof err;
-		if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &elen) == 0 && err != 0) {
+		if (w != 1) {
+			net_set_error(w == 0 ? "no answer to connect" : "connect failed while waiting");
 			close(fd);
 			return -1;
 		}

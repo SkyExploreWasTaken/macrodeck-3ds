@@ -19,5 +19,9 @@ int sock_wait(int fd, int events, int timeout_ms);
 // Reads what is available. >0 bytes, 0 closed, -1 error, -2 would block.
 int sock_recv(int fd, void *buf, size_t len);
 
+// Why the last tcp_connect or HTTP call on this thread failed, e.g. "connect timed out". "" when none.
+const char *net_error(void);
+void net_set_error(const char *fmt, ...);
+
 // The console's own IPv4 address as dotted text, or "" when offline.
 void net_local_ip(char *out, size_t len);

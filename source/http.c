@@ -74,7 +74,12 @@ void http_do(const char *host, int port, const HttpRequest *rq, HttpResponse *rs
 	memset(rs, 0, sizeof *rs);
 	rs->status = -1;
 
-	int fd = tcp_connect(host, port, timeout_ms < 5000 ? timeout_ms : 5000);
+	// Nothing was sent yet when connecting fails, so trying again is safe even for a POST.
+	int fd = -1;
+	for (int attempt = 0; attempt < 3 && fd < 0; attempt++) {
+		if (attempt) plat_sleep_ms(400);
+		fd = tcp_connect(host, port, timeout_ms < 5000 ? timeout_ms : 5000);
+	}
 	if (fd < 0) return;
 
 	size_t cap = 1024 + rq->body_len + (rq->bearer ? strlen(rq->bearer) : 0) + (rq->cookie ? strlen(rq->cookie) : 0);
@@ -107,6 +112,7 @@ void http_do(const char *host, int port, const HttpRequest *rq, HttpResponse *rs
 	int sent = sock_send_all(fd, req, (size_t)n, timeout_ms);
 	free(req);
 	if (sent != 0) {
+		net_set_error("sending the request failed");
 		sock_close(fd);
 		return;
 	}
@@ -159,6 +165,8 @@ void http_do(const char *host, int port, const HttpRequest *rq, HttpResponse *rs
 	buf[len] = 0;
 
 	if (!header_len || len < 12 || strncmp(buf, "HTTP/1.", 7) != 0) {
+		if (len == 0) net_set_error(plat_ms() >= deadline ? "no answer in %ds" : "closed without answering", timeout_ms / 1000);
+		else net_set_error("unreadable answer (%u bytes)", (unsigned)len);
 		free(buf);
 		return;
 	}
